@@ -1,0 +1,238 @@
+#--------------------------------------------------------------------------------------------------------------
+# Filename:		Assumption_test.r
+# Study:			
+# Author:		Qi Chen
+# Date:			2014-10-06
+# Updated:		2014-12-02 by Qi Chen
+# Purpose:		To basic assumptions underlying structure equation model
+#				To estimate intra-class correlations
+# Note:                 keep only 9 years old
+#                       square root transformation
+#                       BIC 
+#                       All assumptions hold
+#--------------------------------------------------------------------------------------------------------------
+# Data used:	adhd_asd.txt (CATSS)				
+#
+# Data created:	----
+#				
+#---------------------------------------------------------------------------------------------------------------  
+# OP:			R 3.1.2
+#---------------------------------------------------------------------------------------------------------------
+
+
+### Load R package
+library(OpenMx)
+
+
+### Set working directory
+setwd("Z:/Project/PhD project/Manuscript 3/Data")
+
+### Read datasets 
+Dat <- read.table("adhd_asd.txt", header = T, sep = "\t")
+selColumns <- c("twinnr", "pairnr", "sex", "age", "bestzyg", "adhdgrind")
+Dat <- Dat[Dat$bestzyg!=3  & Dat$age == 9, selColumns]
+
+
+# Squareroot transformation
+Dat$adhdgrind <- sqrt(Dat$adhdgrind)
+
+Dat$n <- ave(Dat$pairnr, Dat$pairnr, FUN=length)
+
+Dat1 <- Dat[Dat$n==1,]
+Dat2 <- Dat[Dat$n==2,]
+
+
+### Re-randomization
+set.seed(538)
+
+Dat1$runi<-runif(nrow(Dat1), min = 0, max = 1)
+Dat1 <- Dat1[order(Dat1$twinnr),]
+Dat1$tvab <- rep(1:2, nrow(Dat1)/2)
+
+set.seed(538)
+Dat2$runi<-runif(nrow(Dat2), min = 0, max = 1)
+Dat2 <- Dat2[order(Dat2$pairnr, Dat2$runi),]
+Dat2$tvab <- rep(1:2, nrow(Dat2)/2)
+
+Dat <- rbind(Dat1, Dat2)
+
+TwinData1 <- Dat[Dat$tvab==1,]
+TwinData2 <- Dat[Dat$tvab==2,]
+
+TwinData <- merge(TwinData1, TwinData2, by = c("pairnr", "bestzyg", "age"), all = T, suffixes = c("1","2"))
+#TwinData <- merge(TwinData1, TwinData2, by = c("pairnr", "bestzyg", "age"), suffixes = c("1","2"))
+
+#TwinData$adhdgrind1 <- ((TwinData$adhdgrind1+2)^(-1.18)-1)/(-1.18)
+#TwinData$adhdgrind2 <- ((TwinData$adhdgrind2+2)^(-1.18)-1)/(-1.18)
+
+
+
+varNames <- c("adhdgrind1", "adhdgrind2")
+varNames
+
+
+# Set up data
+# bestzyg:  =1 MZ ; =2 DZ like-sexed; =4 DZ opposite sexed;
+# sex: =1 male; =2 female
+datMZm <- TwinData[ which(TwinData$bestzyg == 1 & TwinData$sex1 == 1) , varNames ]
+datMZf <- TwinData[ which(TwinData$bestzyg == 1 & TwinData$sex1 == 2) , varNames ]
+datDZm <- TwinData[ which(TwinData$bestzyg == 2 & TwinData$sex1 == 1) , varNames ]
+datDZf <- TwinData[ which(TwinData$bestzyg == 2 & TwinData$sex1 == 2) , varNames ]
+
+datDZos1 <- TwinData[ which(TwinData$bestzyg == 4 & TwinData$sex1 == 1) , varNames ]
+datDZos2 <- TwinData[ which(TwinData$bestzyg == 4 & TwinData$sex1 == 2) , varNames ]
+names(datDZos2) <- varNames[2:1]
+datDZos <- rbind(datDZos1, datDZos2)
+
+
+### Means show gender difference 
+colMeans(datMZm, na.rm = T)
+colMeans(datMZf, na.rm = T)
+colMeans(datDZm, na.rm = T)
+colMeans(datDZf, na.rm = T)
+colMeans(datDZos, na.rm = T)
+
+### Variances show gender difference
+apply(datMZm, 2, var, na.rm = T)
+apply(datMZf, 2, var, na.rm = T)
+apply(datDZm, 2, var, na.rm = T)
+apply(datDZf, 2, var, na.rm = T)
+apply(datDZos, 2, var, na.rm = T)
+
+###----------------MODEL FITTING-----------------###
+
+
+# Saturated Model
+
+SatMod <- mxModel( name="Mod" , 
+	mxMatrix(type = "Full", nrow = 1, ncol = 2, free = TRUE, labels = c("mzmmean1", "mzmmean2"), values = 4, name = "MZMmeans"),
+	mxMatrix(type = "Full", nrow = 1, ncol = 2, free = TRUE, labels = c("mzfmean1", "mzfmean2"), values = 4, name = "MZFmeans"),
+	mxMatrix(type = "Full", nrow = 1, ncol = 2, free = TRUE, labels = c("dzmmean1", "dzmmean2"), values = 4, name = "DZMmeans"),
+	mxMatrix(type = "Full", nrow = 1, ncol = 2, free = TRUE, labels = c("dzfmean1", "dzfmean2"), values = 4, name = "DZFmeans"),
+	mxMatrix(type = "Full", nrow = 1, ncol = 2, free = TRUE, labels = c("dzosmean1", "dzosmean2"), values = 4, name = "DZOSmeans"),
+	
+	mxMatrix(type = "Symm", nrow = 2, ncol = 2, free = TRUE, labels = c("mzmvar1", "mzmcov","mzmvar2"), values = c(1,0,1), name="MZMimpCov"),
+	mxMatrix(type = "Symm", nrow = 2, ncol = 2, free = TRUE, labels = c("mzfvar1", "mzfcov", "mzfvar2"), values = c(1,0,1), name="MZFimpCov"),
+	mxMatrix(type = "Symm", nrow = 2, ncol = 2, free = TRUE, labels = c("dzmvar1", "dzmcov", "dzmvar2"), values = c(1,0,1), name="DZMimpCov"),	
+	mxMatrix(type = "Symm", nrow = 2, ncol = 2, free = TRUE, labels = c("dzfvar1", "dzfcov", "dzfvar2"), values = c(1,0,1), name="DZFimpCov"),
+	mxMatrix(type = "Symm", nrow = 2, ncol = 2, free = TRUE, labels = c("dzosvar1", "dzoscov", "dzosvar2"), values = c(1,0,1), name="DZOSimpCov"),
+		
+	mxModel(name="MZM",
+		mxData( datMZm , type="raw" ),
+		mxFIMLObjective( means="Mod.MZMmeans" , covariance="Mod.MZMimpCov" , dimnames=varNames )
+	),
+	mxModel(name="MZF",
+		mxData( datMZf , type="raw" ),
+		mxFIMLObjective( means="Mod.MZFmeans" , covariance="Mod.MZFimpCov" , dimnames=varNames )
+	),
+	mxModel(name="DZM",
+		mxData( datDZm , type="raw" ),
+		mxFIMLObjective( means="Mod.DZMmeans" , covariance="Mod.DZMimpCov" , dimnames=varNames )
+	),
+	mxModel(name="DZF",
+		mxData( datDZf , type="raw" ),
+		mxFIMLObjective( means="Mod.DZFmeans" , covariance="Mod.DZFimpCov" , dimnames=varNames )
+	),
+	mxModel(name="DZOS",
+		mxData( datDZos , type="raw" ),
+		mxFIMLObjective( means="Mod.DZOSmeans" , covariance="Mod.DZOSimpCov" , dimnames=varNames )
+	),
+	
+	mxAlgebra( MZM.objective + MZF.objective + DZM.objective + DZF.objective + DZOS.objective, name="m2ll" ),
+	mxAlgebraObjective( "m2ll" )
+)
+
+## Run the model
+mxOption( NULL , 'Number of Threads' , 4 )
+SatModFit <- mxRun( SatMod )
+
+
+
+# Assumption model
+##      In each subsampe (mzm, mzf, dzm, dzf, dzos), 
+##      1. there is no mean difference between twin 1 and twin 2
+##      2. there is no variance difference between twin 1 and twin 2
+
+
+AssumMod <- mxModel(SatMod,
+	mxMatrix(type = "Full", nrow = 1, ncol = 2, free = TRUE, labels = c("mzmmean", "mzmmean"), values = 4, name = "MZMmeans"),
+	mxMatrix(type = "Full", nrow = 1, ncol = 2, free = TRUE, labels = c("mzfmean", "mzfmean"), values = 4, name = "MZFmeans"),
+	mxMatrix(type = "Full", nrow = 1, ncol = 2, free = TRUE, labels = c("dzmmean", "dzmmean"), values = 4, name = "DZMmeans"),
+	mxMatrix(type = "Full", nrow = 1, ncol = 2, free = TRUE, labels = c("dzfmean", "dzfmean"), values = 4, name = "DZFmeans"),
+	mxMatrix(type = "Full", nrow = 1, ncol = 2, free = TRUE, labels = c("dzosmmean", "dzosfmean"), values = 4, name = "DZOSmeans"),
+	
+	mxMatrix(type = "Symm", nrow = 2, ncol = 2, free = TRUE, labels = c( "mzmvar", "mzmcov", "mzmvar"), values = c(1, 0, 1), name="MZMimpCov"),
+	mxMatrix(type = "Symm", nrow = 2, ncol = 2, free = TRUE, labels = c( "mzfvar", "mzfcov", "mzfvar"), values = c(1, 0, 1), name="MZFimpCov"),
+	mxMatrix(type = "Symm", nrow = 2, ncol = 2, free = TRUE, labels = c( "dzmvar", "dzmcov", "dzmvar"), values = c(1, 0, 1), name="DZMimpCov"),	
+	mxMatrix(type = "Symm", nrow = 2, ncol = 2, free = TRUE, labels = c( "dzfvar", "dzfcov", "dzfvar"), values = c(1, 0, 1), name="DZFimpCov"),
+	mxMatrix(type = "Symm", nrow = 2, ncol = 2, free = TRUE, labels = c( "dzosmvar", "dzoscov", "dzosfvar"), values = c(1, 0, 1), name="DZOSimpCov"),
+	
+	mxAlgebra(cov2cor(MZMimpCov)[2,1], "IccMZM"),
+	mxAlgebra(cov2cor(MZFimpCov)[2,1], "IccMZF"),
+	mxAlgebra(cov2cor(DZMimpCov)[2,1], "IccDZM"),
+	mxAlgebra(cov2cor(DZFimpCov)[2,1], "IccDZF"),
+	mxAlgebra(cov2cor(DZOSimpCov)[2,1], "IccDZOS"),
+	
+	mxCI(c("IccMZM", "IccMZF", "IccDZM", "IccDZF", "IccDZOS"))
+)
+
+# Run the model
+mxOption( NULL , 'Number of Threads' , 4 )
+AssumModFit <- mxRun(AssumMod , intervals = F)
+
+# Assumption model 2
+
+## Assuption holds: mean of female MZ twins equals to that of female DZ twins
+
+
+AssumMod2 <- mxModel(AssumMod,
+	mxMatrix(type = "Full", nrow = 1, ncol = 2, free = TRUE, labels = "meanM", values = 4, name = "MZMmeans"),
+	mxMatrix(type = "Full", nrow = 1, ncol = 2, free = TRUE, labels = "meanF", values = 4, name = "MZFmeans"),
+	mxMatrix(type = "Full", nrow = 1, ncol = 2, free = TRUE, labels = "meanM", values = 4, name = "DZMmeans"),
+	mxMatrix(type = "Full", nrow = 1, ncol = 2, free = TRUE, labels = "meanF", values = 4, name = "DZFmeans"),
+	mxMatrix(type = "Full", nrow = 1, ncol = 2, free = TRUE, labels = c("meanMos", "meanFos"), values = 4, name = "DZOSmeans"),
+	
+	mxMatrix(type = "Symm", nrow = 2, ncol = 2, free = TRUE, labels = c( "varM", "mzcovM", "varM"), values = c(1, 0, 1), name="MZMimpCov"),
+        mxMatrix(type = "Symm", nrow = 2, ncol = 2, free = TRUE, labels = c( "varF", "mzcovF", "varF"), values = c(1, 0, 1), name="MZFimpCov"),
+	mxMatrix(type = "Symm", nrow = 2, ncol = 2, free = TRUE, labels = c( "varM", "dzcovM", "varM"), values = c(1, 0, 1), name="DZMimpCov"),	
+	mxMatrix(type = "Symm", nrow = 2, ncol = 2, free = TRUE, labels = c( "varF", "dzcovF", "varF"), values = c(1, 0, 1), name="DZFimpCov"),
+        mxMatrix(type = "Symm", nrow = 2, ncol = 2, free = TRUE, labels = c( "varMos", "dzcovOS", "varFos"), values = c(1, 0, 1), name="DZOSimpCov")
+
+)
+
+# Run the model
+mxOption( NULL , 'Number of Threads' , 4 )
+AssumMod2Fit <- mxRun(AssumMod2 , intervals = F)
+
+
+mxCompare(SatModFit, list(AssumModFit, AssumMod2Fit))
+
+# compare BICs
+rbind(
+        summary(SatModFit)$informationCriteria[2,],
+        summary(AssumModFit)$informationCriteria[2,],
+        summary(AssumMod2Fit)$informationCriteria[2,]
+)
+
+
+
+
+
+
+## Retrieve ICC
+
+mxOption( NULL , 'Number of Threads' , 4 )
+AssumModFit <- mxRun(AssumMod , intervals = T)
+
+
+ICC <- round(summary( AssumModFit )$CI[,c(2,1,3)],3)
+ICC
+ICC <- cbind(paste0(",", ICC[,1], ",", " (", ICC[,2], " - ", ICC[,3], ")"))
+rownames(ICC) <-c("MZM", "MZF", "DZM", "DZF", "DZOS")
+colnames(ICC) <- ",Intra-class Correlation, 95% CI"
+
+write.table(ICC, "UnivariateICC.txt", quote = F)
+
+
+## Since MZ correlation > 2 * DZ correlation
+## ADE model should be used for further analysis
