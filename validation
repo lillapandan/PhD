@@ -1,0 +1,100 @@
+#--------------------------------------------------------------------------------------------------------------
+# Filename:		Validation.r
+# Study:			
+# Author:		Qi Chen
+# Date:			2014-10-06
+# Updated:		2014-12-02 by Qi Chen
+# Purpose:		To basic assumptions underlying structure equation model
+#				      To estimate intra-class correlations
+# Note:
+#--------------------------------------------------------------------------------------------------------------
+# Data used:	adhd_asd.txt (CATSS)				
+#
+# Data created:	----
+#				
+#---------------------------------------------------------------------------------------------------------------  
+# OP:			R 3.1.2
+#---------------------------------------------------------------------------------------------------------------
+
+
+
+library(MASS)
+library(nortest)
+
+
+### Set working directory
+setwd("Z:/Project/PhD project/Manuscript 3/Data")
+
+### Read datasets 
+D <- TwinData[!is.na(TwinData$adhdgrind1),"adhdgrind1"]
+
+#D <-rexp(500)
+
+n=length(D)
+c <- seq(0, n, by = 1)
+lambda <- seq(-5, 5, len=n)
+ll<-NULL
+ 
+
+for (i in 1:n){
+	if (lambda[i]!= 0) {
+		y = (D^lambda[i] - 1)/lambda[i]
+	}
+	else{
+		y = log(D)
+	}
+	sigma2 <- var(y)
+	lli <- (-n/2)*log(sigma2)-n/2+(lambda[i]-1)*sum(log(D))
+	ll <- c(ll,lli)
+}
+# ll <- ll - max(ll)
+  
+par(mfrow=c(1,2))
+plot(lambda,ll,type='l',xlab='Lambda',ylab='Log-likelihood')
+  lines(lambda,ll)
+  abline(h=0)
+  #abline(h=.15,lwd=.3)
+  #title(expression('Box-cox transformation'))
+
+lmax<- max(lambda[ll==max(ll)])
+  abline(v=lmax, col="blue")
+  cat('lambda-hat=', lmax,'\n')  # MLE of lambda 
+  
+
+boxcox( lm(D~1) , lambda= seq(-5,5,len=n) )
+
+hist( (D^(-1) - 1)/(-1) )
+################################################################
+
+BoxCox <- function (parm){
+	lambda1 <- parm[1]
+	lambda2 <- parm[2]
+	if (lambda1 != 0) {
+		y = ((D+lambda2)^lambda1 - 1)/lambda1
+	}
+	else{
+		y = log(D+lambda2)
+	}
+#	-shapiro.test(y)$statistic
+#	lillie.test(y)$statistic
+#	ks.test(y, "pnorm")$statistic
+	ks.test(y, "pnorm", mean =min(y))$statistic
+}
+
+#results <- optim (0.5, BoxCox, lower = -5, upper = 5, method = "Brent")
+results <- optim(c(2,0.5),BoxCox, lower = 0, upper =5, method = "L-BFGS-B")
+results
+#results <- optimize (BoxCox, interval=c(-5,5))
+#results
+
+
+
+test <- function (lambda){	
+	y = (D^lambda - 1)/lambda
+#	shapiro.test(y)
+#	lillie.test(y)
+#	ks.test(y, "pnorm")
+	ks.test(y, "pnorm", mean = min(y))
+}
+
+test(results$par)
