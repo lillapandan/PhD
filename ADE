@@ -1,0 +1,234 @@
+#--------------------------------------------------------------------------------------------------------------
+# Filename:		ADE_heritability.r
+# Study:			
+# Author:		Qi Chen
+# Date:			2014-10-06
+# Updated:		2014-12-02 by Qi Chen
+# Purpose:		To estimate heritability of A-TAC measured ADHD symptoms by classical twin method
+# Note:
+#--------------------------------------------------------------------------------------------------------------
+# Data used:	adhd_asd.txt (CATSS)				
+#
+# Data created:	----
+#				
+#---------------------------------------------------------------------------------------------------------------  
+# OP:			R 3.1.2
+#---------------------------------------------------------------------------------------------------------------
+
+
+### Load OpenMx package
+library(OpenMx)
+
+### Set working directory
+setwd("Z:/Project/PhD project/Manuscript 3/Data")
+
+### Read datasets 
+Dat <- read.table("adhd_asd.txt", header = T, sep = "\t")[,c("twinnr", "pairnr", "sex", "age", "bestzyg", "adhdgrind")]
+Dat$adhdgrind <- sqrt(Dat$adhdgrind)
+
+Dat$n <- ave(Dat$pairnr, Dat$pairnr, FUN=length)
+
+Dat1 <- Dat[Dat$n==1,]
+Dat2 <- Dat[Dat$n==2,]
+
+
+### Re-randomization
+set.seed(538)
+
+Dat1$runi<-runif(nrow(Dat1), min = 0, max = 1)
+Dat1 <- Dat1[order(Dat1$twinnr),]
+Dat1$tvab <- rep(1:2, nrow(Dat1)/2)
+
+set.seed(538)
+Dat2$runi<-runif(nrow(Dat2), min = 0, max = 1)
+Dat2 <- Dat2[order(Dat2$pairnr, Dat2$runi),]
+Dat2$tvab <- rep(1:2, nrow(Dat2)/2)
+
+Dat <- rbind(Dat1, Dat2)
+
+TwinData1 <- Dat[Dat$tvab==1,]
+TwinData2 <- Dat[Dat$tvab==2,]
+
+TwinData <- merge(TwinData1, TwinData2, by = c("pairnr", "bestzyg", "age"), all = T, suffixes = c("1","2"))
+
+
+
+
+
+### Select variables
+varNames <- c('adhdgrind1','adhdgrind2')
+
+### Set up data
+
+###MZM
+datMZm <- TwinData[TwinData$bestzyg==1 & TwinData$sex1==1,varNames]
+
+###DZM
+datDZm <- TwinData[TwinData$bestzyg==2 & TwinData$sex1==1,varNames]
+
+###MZF
+datMZf <- TwinData[TwinData$bestzyg==1 & TwinData$sex1==2,varNames]
+
+###DZF
+datDZf <- TwinData[TwinData$bestzyg==2 & TwinData$sex1==2,varNames]
+
+###DZOS
+#datDZos <- TwinData[TwinData$bestzyg==4 ,varNames]
+
+datDZos1 <- TwinData[ which(TwinData$bestzyg == 4 & TwinData$sex1 == 1) , varNames ]
+datDZos2 <- TwinData[ which(TwinData$bestzyg == 4 & TwinData$sex1 == 2) , varNames ]
+names(datDZos2) <- varNames[2:1]
+datDZos <- rbind(datDZos1, datDZos2)
+
+
+
+# Fit Heterogeneity ADE Model with RawData and Matrices Input
+
+nv <- 1
+
+univHetADEModel <- mxModel("univHetADE",
+mxModel("ADE",
+    # Matrices a, d, and e to store a, d, and e path coefficients
+        mxMatrix( type="Full", nrow=nv, ncol=nv, free=TRUE, values=2, label="am11", name="am" ),
+        mxMatrix( type="Full", nrow=nv, ncol=nv, free=TRUE, values=2, label="dm11", name="dm" ),
+        mxMatrix( type="Full", nrow=nv, ncol=nv, free=TRUE, values=2, label="em11", name="em" ),
+        mxMatrix( type="Full", nrow=nv, ncol=nv, free=TRUE, values=2, label="af11", name="af" ),
+        mxMatrix( type="Full", nrow=nv, ncol=nv, free=TRUE, values=2, label="df11", name="df" ),
+        mxMatrix( type="Full", nrow=nv, ncol=nv, free=TRUE, values=2, label="ef11", name="ef" ),
+        mxMatrix( type="Full", nrow=1, ncol=1, free=TRUE, values=1, label="rg11", name="rg"),
+    
+    # Matrices A, D, and E compute variance components
+        mxAlgebra( expression=am %*% t(am), name="Am" ),
+        mxAlgebra( expression=dm %*% t(dm), name="Dm" ),
+        mxAlgebra( expression=em %*% t(em), name="Em" ),
+        mxAlgebra( expression=af %*% t(af), name="Af" ),
+        mxAlgebra( expression=df %*% t(df), name="Df" ),
+        mxAlgebra( expression=ef %*% t(ef), name="Ef" ),
+        mxAlgebra( expression=Am+Dm+Em, name="Vm" ),
+        mxAlgebra( expression=Af+Df+Ef, name="Vf" ),
+        mxAlgebra( expression=cbind(Am/Vm,Dm/Vm,Em/Vm), name="ADE2m"),
+        mxAlgebra( expression=cbind(Af/Vf,Df/Vf,Ef/Vf), name="ADE2f"),
+		
+		mxAlgebra( expression=Vm+Vf, name="V" ),       
+        mxAlgebra( expression=cbind((Am+Af)/V,(Dm+Df)/V,(Em+Ef)/V), name="ADE2"),
+      
+		
+    
+    # Matrix & Algebra for expected means vector
+        mxMatrix(type='Full' , nrow=1 , ncol=2 , free=c(TRUE,TRUE) , values = c(2,2) , labels = c('MeanMZM','MeanMZM') , name='expMeanMZm'),
+        mxMatrix(type='Full' , nrow=1 , ncol=2 , free=c(TRUE,TRUE) , values = c(3,3) , labels = c('MeanDZM','MeanDZM') , name='expMeanDZm'),
+        mxMatrix(type='Full' , nrow=1 , ncol=2 , free=c(TRUE,TRUE) , values = c(2,2) , labels = c('MeanMZF','MeanMZF') , name='expMeanMZf'),
+        mxMatrix(type='Full' , nrow=1 , ncol=2 , free=c(TRUE,TRUE) , values = c(3,3) , labels = c('MeanDZF','MeanDZF') , name='expMeanDZf'),
+        mxMatrix(type='Full' , nrow=1 , ncol=2 , free=c(TRUE,TRUE) , values = c(3,3) , labels = c('MeanDZM','MeanDZF') , name='expMeanDZos'),
+
+
+    # Algebra for expected variance/covariance matrix in MZ
+        mxAlgebra( expression= rbind  ( cbind(Am+Dm+Em , Am+Dm),
+                                        cbind(Am+Dm   , Am+Dm+Em)), name="expCovMZm" ),
+        mxAlgebra( expression= rbind  ( cbind(Af+Df+Ef , Af+Df),
+                                        cbind(Af+Df   , Af+Df+Ef)), name="expCovMZf" ),
+    # Algebra for expected variance/covariance matrix in DZ, note use of 0.5, converted to 1*1 matrix
+        mxAlgebra( expression= rbind  ( cbind(Am+Dm+Em     , 0.5%x%Am+0.25%x%Dm),
+                                        cbind(0.5%x%Am+0.25%x%Dm , Am+Dm+Em)),  name="expCovDZm" ),
+        mxAlgebra( expression= rbind  ( cbind(Af+Df+Ef     , 0.5%x%Af+0.25%x%Df),
+                                        cbind(0.5%x%Af+0.25%x%Df , Af+Df+Ef)),  name="expCovDZf" ),
+        mxAlgebra( expression= rbind  ( cbind(Af+Df+Ef     , 0.5%*%rg%x%(af%*%t(am))+0.25%*%rg%x%(df%*%t(dm))),
+                                        cbind(0.5%*%rg%x%(af%*%t(am))+0.25%*%rg%x%(df%*%t(dm)) , Am+Dm+Em)),  name="expCovDZos" ) 
+    ),
+    mxModel("MZm",
+        mxData( observed=datMZm, type="raw" ),
+        mxFIMLObjective( covariance="ADE.expCovMZm", means="ADE.expMeanMZm", dimnames=varNames )
+    ),
+    mxModel("DZm", 
+        mxData( observed=datDZm, type="raw" ),
+        mxFIMLObjective( covariance="ADE.expCovDZm", means="ADE.expMeanDZm", dimnames=varNames )
+    ),
+    mxModel("MZf",
+        mxData( observed=datMZf, type="raw" ),
+        mxFIMLObjective( covariance="ADE.expCovMZf", means="ADE.expMeanMZf", dimnames=varNames )
+    ),
+    mxModel("DZf", 
+        mxData( observed=datDZf, type="raw" ),
+        mxFIMLObjective( covariance="ADE.expCovDZf", means="ADE.expMeanDZf", dimnames=varNames )
+    ),
+    mxModel("DZos", 
+        mxData( observed=datDZos, type="raw" ),
+        mxFIMLObjective( covariance="ADE.expCovDZos", means="ADE.expMeanDZos", dimnames=varNames )
+    ),
+    mxAlgebra( expression=MZm.objective + DZm.objective + MZf.objective + DZf.objective + DZos.objective, 
+        name="minus2sumloglikelihood" ),
+    mxAlgebraObjective("minus2sumloglikelihood")
+)
+
+### Run Model
+univHetADEFit <- mxRun(univHetADEModel)
+univHetADESumm <- summary(univHetADEFit)
+univHetADESumm
+
+
+
+### ADE estimates for males and females
+#MaleADE <- round(mxEval((ADE.ADE2m),univHetADEFit),3)
+#FemaleADE <- round(mxEval((ADE.ADE2f),univHetADEFit),3)
+#MaleADE
+#FemaleADE
+
+#TotalADE <- round(mxEval((ADE.ADE2),univHetADEFit),3)
+#TotalADE
+
+### Test Qualitative Sex Differences 
+
+univQualADEModel <- mxModel(univHetADEFit, name="QualADE",
+    mxModel(univHetADEFit$ADE,
+        mxMatrix( type="Full", nrow=1, ncol=1, free=FALSE, values=1, label="rg11", name="rg")
+    )
+)
+### Run Model
+univHetADEFit <- mxRun(univHetADEModel)
+univHetADESumm <- summary(univHetADEFit)
+univHetADESumm
+
+### ADE estimates for males and females
+MaleADE <- round(mxEval((ADE.ADE2m),univHetADEFit),3)
+FemaleADE <- round(mxEval((ADE.ADE2f),univHetADEFit),3)
+MaleADE
+FemaleADE
+
+TotalADE <- round(mxEval((ADE.ADE2),univHetADEFit),3)
+TotalADE
+
+### Test Qualitative Sex Differences 
+
+univQualADEModel <- mxModel(univHetADEFit, name="QualADE",
+    mxModel(univHetADEFit$ADE,
+        mxMatrix( type="Full", nrow=1, ncol=1, free=FALSE, values=1, label="rg11", name="rg")
+    )
+)
+
+### Run Model
+univQualADEFit <- mxRun(univQualADEModel)
+univQualADESumm <- summary(univQualADEFit)
+univQualADESumm
+
+mxCompare(univHetADEFit,univQualADEFit)
+
+### Test Quantitative Sex Differences
+
+univQuanADEModel <- mxModel(univHetADEFit, name="QuanADE",
+    mxModel(univHetADEFit$ADE,
+        mxMatrix( type="Full", nrow=nv, ncol=nv, free=TRUE, values=.6, label="a11", name="am" ),
+        mxMatrix( type="Full", nrow=nv, ncol=nv, free=TRUE, values=.6, label="d11", name="dm" ),
+        mxMatrix( type="Full", nrow=nv, ncol=nv, free=TRUE, values=.6, label="e11", name="em" ),
+        mxMatrix( type="Full", nrow=nv, ncol=nv, free=TRUE, values=.6, label="a11", name="af" ),
+        mxMatrix( type="Full", nrow=nv, ncol=nv, free=TRUE, values=.6, label="d11", name="df" ),
+        mxMatrix( type="Full", nrow=nv, ncol=nv, free=TRUE, values=.6, label="e11", name="ef" ) 
+    )
+)
+univQuanADEFit <- mxRun(univQuanADEModel)
+univQuanADESumm <- summary(univQuanADEFit)
+univQuanADESumm
+
+mxCompare(univHetADEFit,univQuanADEFit)
+
+### Final likelihood ratio test tables
+mxCompare(univHetADEFit,list(univQualADEFit, univQuanADEFit))
